@@ -11,7 +11,7 @@ public class SwiftGCM {
     
     private let key: Data
     private var counter: UInt128
-    private let used: Bool
+    private var used: Bool
     
     // Constructor.
     init(key: Data, nonce: Data) throws {
@@ -42,14 +42,14 @@ public class SwiftGCM {
             counter = counter.increment()
             let ekyi: Data = try encryptBlock(data: counter.getData())
             
-            let ptBlock: Data = dataPadded[i * SwiftGCM.blockSize..<i * SwiftGCM.blockSize + SwiftGCM.blockSize]
+            let ptBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             ct.append(SwiftGCM.xorData(d1: ptBlock, d2: ekyi))
         }
         
-        ct = ct[0..<plaintext.count]
+        ct = ct[ct.startIndex..<ct.startIndex + plaintext.count]
         
-        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h, offset: 0), a: authData, c: ct)
-        let t: Data = (ghash ^ UInt128(raw: eky0, offset: 0)).getData()
+        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
+        let t: Data = (ghash ^ UInt128(raw: eky0)).getData()
         var result: Data = Data()
         
         result.append(ct)
@@ -61,14 +61,14 @@ public class SwiftGCM {
     public func decrypt(auth: Data?, ciphertext: Data) throws -> Data {
         if used { throw SwiftGCMError.instanceAlreadyUsed }
         
-        let ct: Data = ciphertext[0..<ciphertext.count - SwiftGCM.blockSize]
-        let givenT: Data = ciphertext[(ciphertext.count - SwiftGCM.blockSize)...]
+        let ct: Data = ciphertext[ciphertext.startIndex..<ciphertext.startIndex + ciphertext.count - SwiftGCM.blockSize]
+        let givenT: Data = ciphertext[(ciphertext.startIndex + ciphertext.count - SwiftGCM.blockSize)...]
         
         let h: Data = try encryptBlock(data: SwiftGCM.emptyBlock)
         let eky0: Data = try encryptBlock(data: counter.getData())
         let authData: Data = (auth != nil ? auth! : Data())
-        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h, offset: 0), a: authData, c: ct)
-        let computedT: Data = (ghash ^ UInt128(raw: eky0, offset: 0)).getData()
+        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
+        let computedT: Data = (ghash ^ UInt128(raw: eky0)).getData()
         
         if !SwiftGCM.tsCompare(d1: computedT, d2: givenT) {
             throw SwiftGCMError.authTagValidation
@@ -83,7 +83,7 @@ public class SwiftGCM {
             counter = counter.increment()
             let ekyi: Data = try encryptBlock(data: counter.getData())
             
-            let ctBlock: Data = dataPadded[i * SwiftGCM.blockSize..<i * SwiftGCM.blockSize + SwiftGCM.blockSize]
+            let ctBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             pt.append(SwiftGCM.xorData(d1: ctBlock, d2: ekyi))
         }
         
@@ -129,7 +129,7 @@ public class SwiftGCM {
         result.append(nonce)
         result.append(SwiftGCM.emptyCounter)
         
-        return UInt128(raw: result, offset: 0)
+        return UInt128(raw: result)
     }
     
     // Misc.
@@ -210,13 +210,13 @@ public class GaloisField {
         var x: UInt128 = UInt128(b: 0)
         
         for _ in 0...m - 1 {
-            let t: UInt128 = x ^ UInt128(raw: ap[apos..<apos + blockSize], offset: apos)
+            let t: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
             x = multiply(t, h)
             apos += blockSize
         }
         
         for _ in 0...n - 1 {
-            let t: UInt128 = x ^ UInt128(raw: cp[cpos..<cpos + blockSize], offset: cpos)
+            let t: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
             x = multiply(t, h)
             cpos += blockSize
         }
@@ -246,9 +246,9 @@ public struct UInt128 {
     var b: UInt64
     
     // Constructors.
-    init(raw: Data, offset: Int) {
-        let ar: Data = raw[offset..<offset + 8]
-        let br: Data = raw[offset + 8..<offset + 16]
+    init(raw: Data) {
+        let ar: Data = raw[raw.startIndex..<raw.startIndex + 8]
+        let br: Data = raw[raw.startIndex + 8..<raw.startIndex + 16]
         
         a = ar.withUnsafeBytes { (p: UnsafePointer<UInt64>) -> UInt64 in
             return p.pointee

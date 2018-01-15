@@ -11,7 +11,7 @@ public class SwiftGCM {
     
     private let key: Data
     private var counter: UInt128
-    private let used: Bool
+    private var used: Bool
     
     // Constructor.
     init(key: Data, nonce: Data) throws {

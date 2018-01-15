@@ -1,7 +1,7 @@
 ![](icon.png)
 
 # SwiftGCM
-As of *15th January 2018*, Apple is yet to make an implementation of Galois/Counter Mode available to developers.  As a solution to this issue, this library implements AES-128, AES-192 and AES-256 in Galois/Counter Mode with support for additional authenticated data.
+This library implements AES-128, AES-192 and AES-256 in Galois/Counter Mode with support for additional authenticated data.  Other than CommonCrypto, SwiftGCM has no dependencies.
 
 **WARNING**: This library has passed no security audits or anything similar, it is merely an implementation of GCM mode as per [The Galois/Counter Mode of Operation](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.694.695&rep=rep1&type=pdf) by David A. McGrew and John Viega.  This library was first written and completed on the *15th January 2018*.  It may contain bugs or errors in implementation.  Your contribution is appreciated!
 

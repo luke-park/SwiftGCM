@@ -34,5 +34,7 @@ let result: Data = try gcmDec.decrypt(auth: aad, ciphertext: ciphertext)
 
 Once an instance of `SwiftGCM` has been used to encrypt or decrypt, it cannot be used again, as per the example above.  Note that `auth` (the AAD) can be omitted by passing `nil`.
 
+SwiftGCM operates only on binary data (`Data`).  For examples on how to work with strings, consult the example code in [this repository](https://github.com/luke-park/SecureCompatibleEncryptionExamples), which includes string-based methods for use with SwiftGCM.
+
 ## License
 SwiftGCM is licensed under the MIT License.  If you use SwiftGCM in your code, please attribute back to this repository.

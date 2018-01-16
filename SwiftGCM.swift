@@ -1,4 +1,15 @@
+/*
+SwiftGCM.swift
+By Luke Park, 2018
+ 
+The current version of this code has pre-computed lookup tables for the Galois field
+multiplication disabled.  In testing, they were found to be slower, however I expect
+this is due to how I implemented them.  Any benchmark testing and/or optimization
+is welcome where possible.  I expect the UInt128 implementation is the culprit for
+a large number of speed issues.
+*/
 import Foundation
+
 
 public class SwiftGCM {
     private static let keySize128: Int = 16
@@ -6,11 +17,15 @@ public class SwiftGCM {
     private static let keySize256: Int = 32
     private static let requiredNonceSize: Int = 12
     private static let blockSize: Int = 16
-    private static let emptyCounter: Data = Data(bytes: [0, 0, 0, 1])
+    private static let initialCounterSuffix: Data = Data(bytes: [0, 0, 0, 1])
     private static let emptyBlock: Data = Data(bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     
     private let key: Data
     private var counter: UInt128
+    
+    private var h: UInt128
+    // private var table: [[UInt128]]
+    
     private var used: Bool
     
     // Constructor.
@@ -24,6 +39,25 @@ public class SwiftGCM {
         
         self.key = key
         self.counter = SwiftGCM.makeCounter(nonce: nonce)
+        
+        self.h = UInt128(b: 0)
+        self.h = try UInt128(raw: SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock))
+        
+        // Lookup Table code.  Used with GaloisField.tableMultiply and GaloisField.tableHash.
+        // Uncomment the table property above to use.  Ensure you swap from GaloisField.hash to
+        // GaloisField.tableHash in the encrypt and decrypt methods below.
+        
+        /*self.table = [[UInt128]]()
+        for i in 0..<16 {
+            var row: [UInt128] = [UInt128]()
+            
+            for j: UInt64 in 0..<256 {
+                let x: UInt128 = GaloisField.multiply(self.h, UInt128.leftShift(UInt128(b: j), UInt64(8 * i)))
+                row.append(x)
+            }
+            self.table.append(row)
+        }*/
+        
         self.used = false
     }
     
@@ -33,14 +67,14 @@ public class SwiftGCM {
         
         let dataPadded: Data = GaloisField.padToBlockSize(plaintext)
         let blockCount: Int = dataPadded.count / SwiftGCM.blockSize
-        let h: Data = try encryptBlock(data: SwiftGCM.emptyBlock)
-        let eky0: Data = try encryptBlock(data: counter.getData())
+        let h: Data = try SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock)
+        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
         let authData: Data = (auth != nil ? auth! : Data())
         var ct: Data = Data()
         
         for i in 0..<blockCount {
             counter = counter.increment()
-            let ekyi: Data = try encryptBlock(data: counter.getData())
+            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
             
             let ptBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             ct.append(SwiftGCM.xorData(d1: ptBlock, d2: ekyi))
@@ -64,8 +98,8 @@ public class SwiftGCM {
         let ct: Data = ciphertext[ciphertext.startIndex..<ciphertext.startIndex + ciphertext.count - SwiftGCM.blockSize]
         let givenT: Data = ciphertext[(ciphertext.startIndex + ciphertext.count - SwiftGCM.blockSize)...]
         
-        let h: Data = try encryptBlock(data: SwiftGCM.emptyBlock)
-        let eky0: Data = try encryptBlock(data: counter.getData())
+        let h: Data = try SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock)
+        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
         let authData: Data = (auth != nil ? auth! : Data())
         let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
         let computedT: Data = (ghash ^ UInt128(raw: eky0)).getData()
@@ -76,12 +110,12 @@ public class SwiftGCM {
         
         let dataPadded: Data = GaloisField.padToBlockSize(ct)
         let blockCount: Int = dataPadded.count / SwiftGCM.blockSize
-
+        
         var pt: Data = Data()
         
         for i in 0..<blockCount {
             counter = counter.increment()
-            let ekyi: Data = try encryptBlock(data: counter.getData())
+            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
             
             let ctBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             pt.append(SwiftGCM.xorData(d1: ctBlock, d2: ekyi))
@@ -92,7 +126,7 @@ public class SwiftGCM {
         used = true
         return pt
     }
-    private func encryptBlock(data: Data) throws -> Data {
+    private static func encryptBlock(key: Data, data: Data) throws -> Data {
         if data.count != SwiftGCM.blockSize {
             throw SwiftGCMError.invalidDataSize
         }
@@ -127,7 +161,7 @@ public class SwiftGCM {
         var result = Data()
         
         result.append(nonce)
-        result.append(SwiftGCM.emptyCounter)
+        result.append(SwiftGCM.initialCounterSuffix)
         
         return UInt128(raw: result)
     }
@@ -195,6 +229,16 @@ public class GaloisField {
         
         return z
     }
+    public static func tableMultiply(_ x: UInt128, _ t: [[UInt128]]) -> UInt128 {
+        var z: UInt128 = UInt128(b: 0)
+        var xd: Data = x.getData()
+        
+        for i in 0..<16 {
+            z = z ^ t[i][Int(xd[i])]
+        }
+        
+        return z
+    }
     
     // GHASH.
     public static func hash(h: UInt128, a: Data, c: Data) -> UInt128 {
@@ -210,19 +254,48 @@ public class GaloisField {
         var x: UInt128 = UInt128(b: 0)
         
         for _ in 0...m - 1 {
-            let t: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
-            x = multiply(t, h)
+            let k: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
+            x = multiply(k, h)
             apos += blockSize
         }
         
         for _ in 0...n - 1 {
-            let t: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
-            x = multiply(t, h)
+            let k: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
+            x = multiply(k, h)
             cpos += blockSize
         }
         
         let len: UInt128 = UInt128(a: UInt64(a.count * 8), b: UInt64(c.count * 8))
         x = multiply((x ^ len), h)
+        
+        return x
+    }
+    public static func tableHash(t: [[UInt128]], a: Data, c: Data) -> UInt128 {
+        let ap: Data = padToBlockSize(a)
+        let cp: Data = padToBlockSize(c)
+        
+        let m: Int = ap.count / blockSize
+        let n: Int = cp.count / blockSize
+        
+        var apos: Int = 0
+        var cpos: Int = 0
+        
+        var x: UInt128 = UInt128(b: 0)
+        
+        for _ in 0...m - 1 {
+            let k: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
+            x = tableMultiply(k, t)
+            apos += blockSize
+        }
+        
+        for _ in 0...n - 1 {
+            let k: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
+            x = tableMultiply(k, t)
+            cpos += blockSize
+        }
+        
+        let len: UInt128 = UInt128(a: UInt64(a.count * 8), b: UInt64(c.count * 8))
+        x = tableMultiply((x ^ len), t)
         
         return x
     }
@@ -309,6 +382,20 @@ public struct UInt128 {
     public static func rightShift(_ n: UInt128) -> UInt128 {
         let aX: UInt64 = n.a >> 1
         let bX: UInt64 = n.b >> 1 + ((n.a & 1) << 63)
+        return UInt128(a: aX, b: bX)
+    }
+    
+    // Left Shift.
+    public static func leftShift(_ n: UInt128, _ x: UInt64) -> UInt128 {
+        if x < 64 {
+            let d: UInt64 = (1 << (x + 1)) - 1
+            let aX: UInt64 = n.a << x + ((n.b >> (64 - x)) & d)
+            let bX: UInt64 = n.b << x
+            return UInt128(a: aX, b: bX)
+        }
+        
+        let aX: UInt64 = n.b << (x - 64)
+        let bX: UInt64 = 0
         return UInt128(a: aX, b: bX)
     }
     

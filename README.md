@@ -1,7 +1,7 @@
 ![](icon.png)
 
 # SwiftGCM
-This library implements Galois/Counter Mode for Swift.  It has no dependencies other than Apple's CommonCrypto (`CCCrypt`).  You can include SwiftGCM in your project by simply dragging and dropping SwiftGCM.swift into your project source files.
+This library implements Galois/Counter Mode for Swift.  It has no dependencies other than Apple's CommonCrypto (`CCCrypt`).  You can include SwiftGCM in your project by simply dragging and dropping `SwiftGCM.swift` into your project source files.
 
 ## Features
 - Support for AES-128, AES-192 and AES-256.

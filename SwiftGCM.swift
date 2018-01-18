@@ -15,12 +15,23 @@ public class SwiftGCM {
     private static let keySize128: Int = 16
     private static let keySize192: Int = 24
     private static let keySize256: Int = 32
-    private static let requiredNonceSize: Int = 12
+    
+    private static let tagSize128: Int = 16
+    private static let tagSize120: Int = 15
+    private static let tagSize112: Int = 14
+    private static let tagSize104: Int = 13
+    private static let tagSize96: Int = 12
+    private static let tagSize64: Int = 8
+    private static let tagSize32: Int = 4
+    
+    private static let standardNonceSize: Int = 12
     private static let blockSize: Int = 16
+    
     private static let initialCounterSuffix: Data = Data(bytes: [0, 0, 0, 1])
     private static let emptyBlock: Data = Data(bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     
     private let key: Data
+    private let tagSize: Int
     private var counter: UInt128
     
     private var h: UInt128
@@ -29,19 +40,25 @@ public class SwiftGCM {
     private var used: Bool
     
     // Constructor.
-    init(key: Data, nonce: Data) throws {
+    init(key: Data, nonce: Data, tagSize: Int) throws {
+        if tagSize != SwiftGCM.tagSize128 && tagSize != SwiftGCM.tagSize120 && tagSize != SwiftGCM.tagSize112 && tagSize != SwiftGCM.tagSize104 && tagSize != SwiftGCM.tagSize96 && tagSize != SwiftGCM.tagSize64 && tagSize != SwiftGCM.tagSize32 {
+            throw SwiftGCMError.invalidTagSize
+        }
         if key.count != SwiftGCM.keySize128 && key.count != SwiftGCM.keySize192 && key.count != SwiftGCM.keySize256 {
             throw SwiftGCMError.invalidKeySize
         }
-        if nonce.count != SwiftGCM.requiredNonceSize {
-            throw SwiftGCMError.invalidNonceSize
-        }
         
         self.key = key
-        self.counter = SwiftGCM.makeCounter(nonce: nonce)
+        self.tagSize = tagSize
         
         self.h = UInt128(b: 0)
         self.h = try UInt128(raw: SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock))
+        
+        if nonce.count != SwiftGCM.standardNonceSize {
+            self.counter = GaloisField.hash(h: h, a: Data(), c: nonce)
+        } else {
+            self.counter = SwiftGCM.makeCounter(nonce: nonce)
+        }
         
         // Lookup Table code.  Used with GaloisField.tableMultiply and GaloisField.tableHash.
         // Uncomment the table property above to use.  Ensure you swap from GaloisField.hash to
@@ -83,7 +100,9 @@ public class SwiftGCM {
         ct = ct[ct.startIndex..<ct.startIndex + plaintext.count]
         
         let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
-        let t: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        var t: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        t = t[t.startIndex..<tagSize]
+        
         var result: Data = Data()
         
         result.append(ct)
@@ -102,7 +121,9 @@ public class SwiftGCM {
         let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
         let authData: Data = (auth != nil ? auth! : Data())
         let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
-        let computedT: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        var computedT: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        computedT = computedT[computedT.startIndex..<tagSize]
+        
         
         if !SwiftGCM.tsCompare(d1: computedT, d2: givenT) {
             throw SwiftGCMError.authTagValidation
@@ -197,8 +218,8 @@ public class SwiftGCM {
 
 public enum SwiftGCMError: Error {
     case invalidKeySize
-    case invalidNonceSize
     case invalidDataSize
+    case invalidTagSize
     case instanceAlreadyUsed
     case commonCryptoError(err: Int32)
     case authTagValidation

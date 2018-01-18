@@ -1,24 +1,21 @@
 ![](icon.png)
 
 # SwiftGCM
-This library implements AES-128, AES-192 and AES-256 in Galois/Counter Mode with support for additional authenticated data.  Other than CommonCrypto, SwiftGCM has no dependencies.
+This library implements Galois/Counter Mode for Swift.  It has no dependencies other than Apple's CommonCrypto (`CCCrypt`).  You can include SwiftGCM in your project by simply dragging and dropping SwiftGCM.swift into your project source files.
 
-**WARNING**: This library has passed no security audits or anything similar, it is merely an implementation of GCM mode as per [The Galois/Counter Mode of Operation](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.694.695&rep=rep1&type=pdf) by David A. McGrew and John Viega.  This library was first written and completed on the *15th January 2018*.  It may contain bugs or errors in implementation.  Your contribution is appreciated!
+## Features
+- Support for AES-128, AES-192 and AES-256.
+- Support for Additional Authenticated Data.
+- Support for arbitrary nonce sizes (96 bits recommended).
+- Support for 128, 120, 112, 104, 96, 64 and 32 bit authentication tag sizes (128 bits recommended).
 
-## Installation
-SwiftGCM has no dependencies other than CommonCrypto.  To add CommonCrypto to your project, add a bridging header and import CommonCrypto:
+## Installing
+To use SwiftGCM, simply drag `SwiftGCM.swift` into your project source files.  You will also need to include `Security.framework` in your code and add a bridging header to import CommonCrypto:
 ```
 #import <CommonCrypto/CommonCrypto.h>
 ```
-You will also need to add `Security.framework` to your project.  To use SwiftGCM, simply drag `SwiftGCM.swift` into your project source files.
 
-## Implementation Notes
-- Nonces are required to be 96-bits in size.  No other size of nonce is supported.
-- Authentication tags are always 128-bits.
-- Key sizes of 128, 192 and 256 bits are supported.
-- The last 128 bits of the output of `encrypt` is the authentication tag.
-
-## Example
+## Basic Example
 ```swift
 let key: Data = ...
 let nonce: Data = ...
@@ -34,7 +31,11 @@ let result: Data = try gcmDec.decrypt(auth: aad, ciphertext: ciphertext)
 
 Once an instance of `SwiftGCM` has been used to encrypt or decrypt, it cannot be used again, as per the example above.  Note that `auth` (the AAD) can be omitted by passing `nil`.
 
-SwiftGCM operates only on binary data (`Data`).  For examples on how to work with strings, consult the example code in [this repository](https://github.com/luke-park/SecureCompatibleEncryptionExamples), which includes string-based methods for use with SwiftGCM.
+## Production Ready Examples
+For examples on how to work with encryption in production, consult the example code in [this repository](https://github.com/luke-park/SecureCompatibleEncryptionExamples), which currently has compatible encryption examples in C#, PHP, Java, JavaScript, Swift and Go.
+
+## Warning
+This library has passed no security audits or anything similar, it is merely an implementation of GCM mode as per [The Galois/Counter Mode of Operation](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.694.695&rep=rep1&type=pdf) by David A. McGrew and John Viega.  It may contain bugs or errors in implementation.  Your contribution is appreciated!
 
 ## License
 SwiftGCM is licensed under the MIT License.  If you use SwiftGCM in your code, please attribute back to this repository.

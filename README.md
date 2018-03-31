@@ -34,7 +34,7 @@ Once an instance of `SwiftGCM` has been used to encrypt or decrypt, it cannot be
 **Warning**: Reusing a key/nonce pair can lead to trivial exposure of plaintext.  If you are not versed in cryptography, ensure you view the production ready examples below before implementing this code in your project.
 
 ## Production Ready Examples
-For examples on how to work with encryption in production, consult the example code in [this repository](https://github.com/luke-park/SecureCompatibleEncryptionExamples), which currently has compatible encryption examples in C#, PHP, Java, JavaScript, Swift and Go.
+For examples on how to work with encryption in production, consult the example code in [this repository](https://github.com/luke-park/SecureCompatibleEncryptionExamples).
 
 ## Warning
 This library has passed no security audits or anything similar, it is merely an implementation of GCM mode as per [The Galois/Counter Mode of Operation](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.694.695&rep=rep1&type=pdf) by David A. McGrew and John Viega.  It may contain bugs or errors in implementation.  Your contribution is appreciated!

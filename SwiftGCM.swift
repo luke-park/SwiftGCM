@@ -1,28 +1,20 @@
-/*
-SwiftGCM.swift
-By Luke Park, 2018
- 
-The current version of this code has pre-computed lookup tables for the Galois field
-multiplication disabled.  In testing, they were found to be slower, however I expect
-this is due to how I implemented them.  Any benchmark testing and/or optimization
-is welcome where possible.  I expect the UInt128 implementation is the culprit for
-a large number of speed issues.
-*/
-import Foundation
+// SwiftGCM.swift
+// By Luke Park, 2018
 
+import Foundation
 
 public class SwiftGCM {
     private static let keySize128: Int = 16
     private static let keySize192: Int = 24
     private static let keySize256: Int = 32
     
-    private static let tagSize128: Int = 16
-    private static let tagSize120: Int = 15
-    private static let tagSize112: Int = 14
-    private static let tagSize104: Int = 13
-    private static let tagSize96: Int = 12
-    private static let tagSize64: Int = 8
-    private static let tagSize32: Int = 4
+    public static let tagSize128: Int = 16
+    public static let tagSize120: Int = 15
+    public static let tagSize112: Int = 14
+    public static let tagSize104: Int = 13
+    public static let tagSize96: Int = 12
+    public static let tagSize64: Int = 8
+    public static let tagSize32: Int = 4
     
     private static let standardNonceSize: Int = 12
     private static let blockSize: Int = 16
@@ -35,8 +27,6 @@ public class SwiftGCM {
     private var counter: UInt128
     
     private var h: UInt128
-    // private var table: [[UInt128]]
-    
     private var used: Bool
     
     // Constructor.
@@ -59,21 +49,6 @@ public class SwiftGCM {
         } else {
             self.counter = SwiftGCM.makeCounter(nonce: nonce)
         }
-        
-        // Lookup Table code.  Used with GaloisField.tableMultiply and GaloisField.tableHash.
-        // Uncomment the table property above to use.  Ensure you swap from GaloisField.hash to
-        // GaloisField.tableHash in the encrypt and decrypt methods below.
-        
-        /*self.table = [[UInt128]]()
-        for i in 0..<16 {
-            var row: [UInt128] = [UInt128]()
-            
-            for j: UInt64 in 0..<256 {
-                let x: UInt128 = GaloisField.multiply(self.h, UInt128.leftShift(UInt128(b: j), UInt64(8 * i)))
-                row.append(x)
-            }
-            self.table.append(row)
-        }*/
         
         self.used = false
     }

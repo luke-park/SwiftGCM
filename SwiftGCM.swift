@@ -66,7 +66,7 @@ public class SwiftGCM {
         var ct: Data = Data()
         
         for i in 0..<blockCount {
-            counter = incrementCounter(counter)
+            counter = counter.increment()
             let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
             
             let ptBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
@@ -110,7 +110,7 @@ public class SwiftGCM {
         var pt: Data = Data()
         
         for i in 0..<blockCount {
-            counter = incrementCounter(counter)
+            counter = counter.increment()
             let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
             let ctBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             pt.append(SwiftGCM.xorData(d1: ctBlock, d2: ekyi))
@@ -200,77 +200,11 @@ public enum SwiftGCMError: Error {
 }
 
 
-// Successive counter values are generated using the function incr(), which treats the rightmost 32
-// bits of its argument as a nonnegative integer with the least significant bit on the right
-private func incrementCounter(_ counter: UInt128) -> UInt128 {
-    let b = counter.i.b + 1
-    let a = (b == 0 ? counter.i.a + 1 : counter.i.a)
-    return UInt128((a, b))
-}
-
-
-// If data is not a multiple of block size bytes long then the remainder is zero padded
-// Note: It's similar to ZeroPadding, but it's not the same.
-private func addPadding(_ bytes: Array<UInt8>, blockSize: Int) -> Array<UInt8> {
-    if bytes.isEmpty {
-        return Array<UInt8>(repeating: 0, count: blockSize)
-    }
-    
-    let remainder = bytes.count % blockSize
-    if remainder == 0 {
-        return bytes
-    }
-    
-    let paddingCount = blockSize - remainder
-    if paddingCount > 0 {
-        return bytes + Array<UInt8>(repeating: 0, count: paddingCount)
-    }
-    return bytes
-}
-
-// MARK: - GF
 
 /// The Field GF(2^128)
 private final class GaloisField {
-    static let r = UInt128(a: 0xE100000000000000, b: 0)
+    private static let r = UInt128(a: 0xE100000000000000, b: 0)
     private static let blockSize: Int = 16
-
-    let blockSize: Int
-    let h: UInt128
-    
-    // AAD won't change
-    let aadLength: Int
-    
-    // Updated for every consumed block
-    var ciphertextLength: Int
-    
-    // Start with 0
-    var x: UInt128
-    
-    init(aad: [UInt8], h: UInt128, blockSize: Int) {
-        self.blockSize = blockSize
-        aadLength = aad.count
-        ciphertextLength = 0
-        self.h = h
-        x = 0
-        
-        // Calculate for AAD at the begining
-        x = GaloisField.calculateX(aad: aad, x: x, h: h, blockSize: blockSize)
-    }
-    
-    @discardableResult
-    func ghashUpdate(block ciphertextBlock: Array<UInt8>) -> UInt128 {
-        ciphertextLength += ciphertextBlock.count
-        x = GaloisField.calculateX(block: addPadding(ciphertextBlock, blockSize: blockSize), x: x, h: h, blockSize: blockSize)
-        return x
-    }
-    
-    func ghashFinish() -> UInt128 {
-        // len(A) || len(C)
-        let len = UInt128(a: UInt64(aadLength * 8), b: UInt64(ciphertextLength * 8))
-        x = GaloisField.multiply((x ^ len), h)
-        return x
-    }
     
     // GHASH. One-time calculation
     static func ghash(x startx: UInt128 = 0, h: UInt128, aad: Data, ciphertext: Data) -> UInt128 {
@@ -282,6 +216,27 @@ private final class GaloisField {
         x = multiply((x ^ len), h)
         return x
     }
+    
+    
+    // If data is not a multiple of block size bytes long then the remainder is zero padded
+    // Note: It's similar to ZeroPadding, but it's not the same.
+    static private func addPadding(_ bytes: Array<UInt8>, blockSize: Int) -> Array<UInt8> {
+        if bytes.isEmpty {
+            return Array<UInt8>(repeating: 0, count: blockSize)
+        }
+        
+        let remainder = bytes.count % blockSize
+        if remainder == 0 {
+            return bytes
+        }
+        
+        let paddingCount = blockSize - remainder
+        if paddingCount > 0 {
+            return bytes + Array<UInt8>(repeating: 0, count: paddingCount)
+        }
+        return bytes
+    }
+    
     
     // Calculate Ciphertext part, for all blocks
     // Not used with incremental calculation.
@@ -405,6 +360,15 @@ struct UInt128: Equatable, ExpressibleByIntegerLiteral {
         result.append(ar)
         result.append(br)
         return result
+    }
+    
+    
+    // Successive counter values are generated using the function incr(), which treats the rightmost 32
+    // bits of its argument as a nonnegative integer with the least significant bit on the right
+    func increment() -> UInt128 {
+        let b = self.i.b + 1
+        let a = (b == 0 ? self.i.a + 1 : self.i.a)
+        return UInt128((a, b))
     }
     
     

@@ -21,7 +21,8 @@ To use SwiftGCM, simply drag `SwiftGCM.swift` into your project source files.  Y
  let nonce: Data = ...
  let plaintext: Data = ...
  let aad: Data = ...
- 
+  let tagSize = 16
+
  let gcmEnc: SwiftGCM = try SwiftGCM(key: key, nonce: nonce, tagSize:tagSize)
  let ciphertext: Data = try gcmEnc.encrypt(auth: aad, plaintext: plaintext)
  

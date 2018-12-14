@@ -1,22 +1,6 @@
 // SwiftGCM.swift
 // By Luke Park, 2018
 
-/*
- https://github.com/luke-park/SwiftGCM
- https://crypto.stackexchange.com/questions/17999/aes256-gcm-can-someone-explain-how-to-use-it-securely-ruby
- 
- let key: Data = ...
- let nonce: Data = ...
- let plaintext: Data = ...
- let aad: Data = ...
- 
- let gcmEnc: SwiftGCM = try SwiftGCM(key: key, nonce: nonce, tagSize:tagSize)
- let ciphertext: Data = try gcmEnc.encrypt(auth: aad, plaintext: plaintext)
- 
- let gcmDec: SwiftGCM = try SwiftGCM(key: key, nonce: nonce, tagSize:tagSize)
- let result: Data = try gcmDec.decrypt(auth: aad, ciphertext: ciphertext)
- */
-
 import Foundation
 import CommonCrypto
 

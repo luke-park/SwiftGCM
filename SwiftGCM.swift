@@ -1,7 +1,24 @@
 // SwiftGCM.swift
 // By Luke Park, 2018
 
+/*
+ https://github.com/luke-park/SwiftGCM
+ https://crypto.stackexchange.com/questions/17999/aes256-gcm-can-someone-explain-how-to-use-it-securely-ruby
+ 
+ let key: Data = ...
+ let nonce: Data = ...
+ let plaintext: Data = ...
+ let aad: Data = ...
+ 
+ let gcmEnc: SwiftGCM = try SwiftGCM(key: key, nonce: nonce, tagSize:tagSize)
+ let ciphertext: Data = try gcmEnc.encrypt(auth: aad, plaintext: plaintext)
+ 
+ let gcmDec: SwiftGCM = try SwiftGCM(key: key, nonce: nonce, tagSize:tagSize)
+ let result: Data = try gcmDec.decrypt(auth: aad, ciphertext: ciphertext)
+ */
+
 import Foundation
+import CommonCrypto
 
 public class SwiftGCM {
     private static let keySize128: Int = 16
@@ -41,11 +58,11 @@ public class SwiftGCM {
         self.key = key
         self.tagSize = tagSize
         
-        self.h = UInt128(b: 0)
-        self.h = try UInt128(raw: SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock))
+        self.h = UInt128(0)
+        self.h = try UInt128((SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock)))
         
         if nonce.count != SwiftGCM.standardNonceSize {
-            self.counter = GaloisField.hash(h: h, a: Data(), c: nonce)
+            self.counter = GaloisField.ghash(h: h, aad: Data(), ciphertext: nonce)
         } else {
             self.counter = SwiftGCM.makeCounter(nonce: nonce)
         }
@@ -60,22 +77,21 @@ public class SwiftGCM {
         let dataPadded: Data = GaloisField.padToBlockSize(plaintext)
         let blockCount: Int = dataPadded.count / SwiftGCM.blockSize
         let h: Data = try SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock)
-        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
+        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
         let authData: Data = (auth != nil ? auth! : Data())
         var ct: Data = Data()
         
         for i in 0..<blockCount {
-            counter = counter.increment()
-            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
+            counter = incrementCounter(counter)
+            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
             
             let ptBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             ct.append(SwiftGCM.xorData(d1: ptBlock, d2: ekyi))
         }
         
         ct = ct[ct.startIndex..<ct.startIndex + plaintext.count]
-        
-        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
-        var t: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        let ghash = GaloisField.ghash(h: UInt128(h), aad: authData, ciphertext: ct)
+        var t = (ghash ^ UInt128(eky0)).data
         t = t[t.startIndex..<tagSize]
         
         var result: Data = Data()
@@ -86,6 +102,7 @@ public class SwiftGCM {
         used = true
         return result
     }
+    
     public func decrypt(auth: Data?, ciphertext: Data) throws -> Data {
         if used { throw SwiftGCMError.instanceAlreadyUsed }
         
@@ -93,12 +110,11 @@ public class SwiftGCM {
         let givenT: Data = ciphertext[(ciphertext.startIndex + ciphertext.count - SwiftGCM.blockSize)...]
         
         let h: Data = try SwiftGCM.encryptBlock(key: key, data: SwiftGCM.emptyBlock)
-        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
+        let eky0: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
         let authData: Data = (auth != nil ? auth! : Data())
-        let ghash: UInt128 = GaloisField.hash(h: UInt128(raw: h), a: authData, c: ct)
-        var computedT: Data = (ghash ^ UInt128(raw: eky0)).getData()
+        let ghash = GaloisField.ghash(h: UInt128(h), aad: authData, ciphertext: ct)
+        var computedT = (ghash ^ UInt128(eky0)).data
         computedT = computedT[computedT.startIndex..<tagSize]
-        
         
         if !SwiftGCM.tsCompare(d1: computedT, d2: givenT) {
             throw SwiftGCMError.authTagValidation
@@ -110,9 +126,8 @@ public class SwiftGCM {
         var pt: Data = Data()
         
         for i in 0..<blockCount {
-            counter = counter.increment()
-            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.getData())
-            
+            counter = incrementCounter(counter)
+            let ekyi: Data = try SwiftGCM.encryptBlock(key: key, data: counter.data)
             let ctBlock: Data = dataPadded[dataPadded.startIndex + i * SwiftGCM.blockSize..<dataPadded.startIndex + i * SwiftGCM.blockSize + SwiftGCM.blockSize]
             pt.append(SwiftGCM.xorData(d1: ctBlock, d2: ekyi))
         }
@@ -122,6 +137,7 @@ public class SwiftGCM {
         used = true
         return pt
     }
+    
     private static func encryptBlock(key: Data, data: Data) throws -> Data {
         if data.count != SwiftGCM.blockSize {
             throw SwiftGCMError.invalidDataSize
@@ -137,10 +153,11 @@ public class SwiftGCM {
         var ct: Data = Data(count: data.count)
         var num: size_t = 0
         
+        let ct_count = ct.count
         let status = ct.withUnsafeMutableBytes { ctRaw in
             dataMutable.withUnsafeMutableBytes { dataRaw in
                 keyMutable.withUnsafeMutableBytes{ keyRaw in
-                    CCCrypt(operation, algorithm, options, keyRaw, key.count, nil, dataRaw, data.count, ctRaw, ct.count, &num)
+                    CCCrypt(operation, algorithm, options, keyRaw, key.count, nil, dataRaw, data.count, ctRaw, ct_count, &num)
                 }
             }
         }
@@ -155,11 +172,9 @@ public class SwiftGCM {
     // Counter.
     private static func makeCounter(nonce: Data) -> UInt128 {
         var result = Data()
-        
         result.append(nonce)
         result.append(SwiftGCM.initialCounterSuffix)
-        
-        return UInt128(raw: result)
+        return UInt128(result)
     }
     
     // Misc.
@@ -200,100 +215,147 @@ public enum SwiftGCMError: Error {
     case authTagValidation
 }
 
-public class GaloisField {
-    private static let one: UInt128 = UInt128(b: 1)
-    private static let r: UInt128 = UInt128(a: 0xE100000000000000, b: 0)
+
+// Successive counter values are generated using the function incr(), which treats the rightmost 32
+// bits of its argument as a nonnegative integer with the least significant bit on the right
+private func incrementCounter(_ counter: UInt128) -> UInt128 {
+    let b = counter.i.b + 1
+    let a = (b == 0 ? counter.i.a + 1 : counter.i.a)
+    return UInt128((a, b))
+}
+
+
+// If data is not a multiple of block size bytes long then the remainder is zero padded
+// Note: It's similar to ZeroPadding, but it's not the same.
+private func addPadding(_ bytes: Array<UInt8>, blockSize: Int) -> Array<UInt8> {
+    if bytes.isEmpty {
+        return Array<UInt8>(repeating: 0, count: blockSize)
+    }
+    
+    let remainder = bytes.count % blockSize
+    if remainder == 0 {
+        return bytes
+    }
+    
+    let paddingCount = blockSize - remainder
+    if paddingCount > 0 {
+        return bytes + Array<UInt8>(repeating: 0, count: paddingCount)
+    }
+    return bytes
+}
+
+// MARK: - GF
+
+/// The Field GF(2^128)
+private final class GaloisField {
+    static let r = UInt128(a: 0xE100000000000000, b: 0)
     private static let blockSize: Int = 16
+
+    let blockSize: Int
+    let h: UInt128
+    
+    // AAD won't change
+    let aadLength: Int
+    
+    // Updated for every consumed block
+    var ciphertextLength: Int
+    
+    // Start with 0
+    var x: UInt128
+    
+    init(aad: [UInt8], h: UInt128, blockSize: Int) {
+        self.blockSize = blockSize
+        aadLength = aad.count
+        ciphertextLength = 0
+        self.h = h
+        x = 0
+        
+        // Calculate for AAD at the begining
+        x = GaloisField.calculateX(aad: aad, x: x, h: h, blockSize: blockSize)
+    }
+    
+    @discardableResult
+    func ghashUpdate(block ciphertextBlock: Array<UInt8>) -> UInt128 {
+        ciphertextLength += ciphertextBlock.count
+        x = GaloisField.calculateX(block: addPadding(ciphertextBlock, blockSize: blockSize), x: x, h: h, blockSize: blockSize)
+        return x
+    }
+    
+    func ghashFinish() -> UInt128 {
+        // len(A) || len(C)
+        let len = UInt128(a: UInt64(aadLength * 8), b: UInt64(ciphertextLength * 8))
+        x = GaloisField.multiply((x ^ len), h)
+        return x
+    }
+    
+    // GHASH. One-time calculation
+    static func ghash(x startx: UInt128 = 0, h: UInt128, aad: Data, ciphertext: Data) -> UInt128 {
+        var x = calculateX(aad: Array(aad), x: startx, h: h, blockSize: blockSize)
+        x = calculateX(ciphertext: Array(ciphertext), x: x, h: h, blockSize: blockSize)
+        
+        // len(aad) || len(ciphertext)
+        let len = UInt128(a: UInt64(aad.count * 8), b: UInt64(ciphertext.count * 8))
+        x = multiply((x ^ len), h)
+        return x
+    }
+    
+    // Calculate Ciphertext part, for all blocks
+    // Not used with incremental calculation.
+    private static func calculateX(ciphertext: [UInt8], x startx: UInt128, h: UInt128, blockSize: Int) -> UInt128 {
+        let pciphertext = addPadding(ciphertext, blockSize: blockSize)
+        let blocksCount = pciphertext.count / blockSize
+        
+        var x = startx
+        for i in 0..<blocksCount {
+            let cpos = i * blockSize
+            let block = pciphertext[pciphertext.startIndex.advanced(by: cpos)..<pciphertext.startIndex.advanced(by: cpos + blockSize)]
+            x = calculateX(block: Array(block), x: x, h: h, blockSize: blockSize)
+        }
+        return x
+    }
+    
+    // block is expected to be padded with addPadding
+    private static func calculateX(block ciphertextBlock: Array<UInt8>, x: UInt128, h: UInt128, blockSize: Int) -> UInt128 {
+        let k = x ^ UInt128(ciphertextBlock)
+        return multiply(k, h)
+    }
+    
+    // Calculate AAD part, for all blocks
+    private static func calculateX(aad: [UInt8], x startx: UInt128, h: UInt128, blockSize: Int) -> UInt128 {
+        let paad = addPadding(aad, blockSize: blockSize)
+        let blocksCount = paad.count / blockSize
+        
+        var x = startx
+        for i in 0..<blocksCount {
+            let apos = i * blockSize
+            let k = x ^ UInt128(paad[paad.startIndex.advanced(by: apos)..<paad.startIndex.advanced(by: apos + blockSize)])
+            x = multiply(k, h)
+        }
+        
+        return x
+    }
     
     // Multiplication GF(2^128).
-    public static func multiply(_ x: UInt128, _ y: UInt128) -> UInt128 {
-        var z: UInt128 = UInt128(b: 0)
-        var v: UInt128 = x
-        var k: UInt128 = UInt128(a: 1 << 63, b: 0)
+    private static func multiply(_ x: UInt128, _ y: UInt128) -> UInt128 {
+        var z: UInt128 = 0
+        var v = x
+        var k = UInt128(a: 1 << 63, b: 0)
         
-        for _ in 0...127 {
+        for _ in 0..<128 {
             if y & k == k {
                 z = z ^ v
             }
-            if v & GaloisField.one != GaloisField.one {
-                v = UInt128.rightShift(v)
+            
+            if v & 1 != 1 {
+                v = v >> 1
             } else {
-                v = UInt128.rightShift(v) ^ r
+                v = (v >> 1) ^ r
             }
-            k = UInt128.rightShift(k)
+            
+            k = k >> 1
         }
         
         return z
-    }
-    public static func tableMultiply(_ x: UInt128, _ t: [[UInt128]]) -> UInt128 {
-        var z: UInt128 = UInt128(b: 0)
-        var xd: Data = x.getData()
-        
-        for i in 0..<16 {
-            z = z ^ t[i][Int(xd[i])]
-        }
-        
-        return z
-    }
-    
-    // GHASH.
-    public static func hash(h: UInt128, a: Data, c: Data) -> UInt128 {
-        let ap: Data = padToBlockSize(a)
-        let cp: Data = padToBlockSize(c)
-        
-        let m: Int = ap.count / blockSize
-        let n: Int = cp.count / blockSize
-        
-        var apos: Int = 0
-        var cpos: Int = 0
-        
-        var x: UInt128 = UInt128(b: 0)
-        
-        for _ in 0...m - 1 {
-            let k: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
-            x = multiply(k, h)
-            apos += blockSize
-        }
-        
-        for _ in 0...n - 1 {
-            let k: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
-            x = multiply(k, h)
-            cpos += blockSize
-        }
-        
-        let len: UInt128 = UInt128(a: UInt64(a.count * 8), b: UInt64(c.count * 8))
-        x = multiply((x ^ len), h)
-        
-        return x
-    }
-    public static func tableHash(t: [[UInt128]], a: Data, c: Data) -> UInt128 {
-        let ap: Data = padToBlockSize(a)
-        let cp: Data = padToBlockSize(c)
-        
-        let m: Int = ap.count / blockSize
-        let n: Int = cp.count / blockSize
-        
-        var apos: Int = 0
-        var cpos: Int = 0
-        
-        var x: UInt128 = UInt128(b: 0)
-        
-        for _ in 0...m - 1 {
-            let k: UInt128 = x ^ UInt128(raw: ap[ap.startIndex + apos..<ap.startIndex + apos + blockSize])
-            x = tableMultiply(k, t)
-            apos += blockSize
-        }
-        
-        for _ in 0...n - 1 {
-            let k: UInt128 = x ^ UInt128(raw: cp[cp.startIndex + cpos..<cp.startIndex + cpos + blockSize])
-            x = tableMultiply(k, t)
-            cpos += blockSize
-        }
-        
-        let len: UInt128 = UInt128(a: UInt64(a.count * 8), b: UInt64(c.count * 8))
-        x = tableMultiply((x ^ len), t)
-        
-        return x
     }
     
     // Padding.
@@ -310,96 +372,82 @@ public class GaloisField {
     }
 }
 
-public struct UInt128 {
-    var a: UInt64
-    var b: UInt64
+
+struct UInt128: Equatable, ExpressibleByIntegerLiteral {
+    let i: (a: UInt64, b: UInt64)
     
-    // Constructors.
-    init(raw: Data) {
-        let ar: Data = raw[raw.startIndex..<raw.startIndex + 8]
-        let br: Data = raw[raw.startIndex + 8..<raw.startIndex + 16]
-        
-        a = ar.withUnsafeBytes { (p: UnsafePointer<UInt64>) -> UInt64 in
-            return p.pointee
-        }
-        b = br.withUnsafeBytes { (p: UnsafePointer<UInt64>) -> UInt64 in
-            return p.pointee
-        }
-        
-        a = a.bigEndian
-        b = b.bigEndian
-    }
-    init (a: UInt64, b: UInt64) {
-        self.a = a
-        self.b = b
-    }
-    init (b: UInt64) {
-        self.a = 0
-        self.b = b
+    typealias IntegerLiteralType = UInt64
+    
+    init(integerLiteral value: IntegerLiteralType) {
+        self = UInt128(value)
     }
     
-    // Data.
-    public func getData() -> Data {
-        var at: UInt64 = self.a.bigEndian
-        var bt: UInt64 = self.b.bigEndian
+    init(_ raw: Array<UInt8>) {
+        self = raw.prefix(MemoryLayout<UInt128>.stride).withUnsafeBytes({ (rawBufferPointer) -> UInt128 in
+            let arr = rawBufferPointer.bindMemory(to: UInt64.self)
+            return UInt128((arr[0].bigEndian, arr[1].bigEndian))
+        })
+    }
+    
+    init(_ raw: Data) {
+        self.init(Array(raw))
+    }
+    
+    init(_ raw: ArraySlice<UInt8>) {
+        self.init(Array(raw))
+    }
+    
+    init(_ i: (a: UInt64, b: UInt64)) {
+        self.i = i
+    }
+    
+    init(a: UInt64, b: UInt64) {
+        self.init((a, b))
+    }
+    
+    init(_ b: UInt64) {
+        self.init((0, b))
+    }
+    
+    // Data
+    var data: Data {
+        var at = i.a.bigEndian
+        var bt = i.b.bigEndian
         
-        let ar: Data = Data(bytes: &at, count: MemoryLayout.size(ofValue: at))
-        let br: Data = Data(bytes: &bt, count: MemoryLayout.size(ofValue: bt))
+        let ar = Data(bytes: &at, count: MemoryLayout.size(ofValue: at))
+        let br = Data(bytes: &bt, count: MemoryLayout.size(ofValue: bt))
         
-        var result: Data = Data()
+        var result = Data()
         result.append(ar)
         result.append(br)
-        
         return result
     }
     
-    // Increment.
-    public func increment() -> UInt128 {
-        let bn: UInt64 = b + 1
-        let an: UInt64 = (bn == 0 ? a + 1 : a)
-        return UInt128(a: an, b: bn)
+    
+    static func ^(n1: UInt128, n2: UInt128) -> UInt128 {
+        return UInt128((n1.i.a ^ n2.i.a, n1.i.b ^ n2.i.b))
     }
     
-    // XOR.
-    public static func ^(n1: UInt128, n2: UInt128) -> UInt128 {
-        let aX: UInt64 = n1.a ^ n2.a
-        let bX: UInt64 = n1.b ^ n2.b
-        return UInt128(a: aX, b: bX)
+    static func &(n1: UInt128, n2: UInt128) -> UInt128 {
+        return UInt128((n1.i.a & n2.i.a, n1.i.b & n2.i.b))
     }
     
-    // AND.
-    public static func &(n1: UInt128, n2: UInt128) -> UInt128 {
-        let aX: UInt64 = n1.a & n2.a
-        let bX: UInt64 = n1.b & n2.b
-        return UInt128(a: aX, b: bX)
-    }
-    
-    // Right Shift.
-    public static func rightShift(_ n: UInt128) -> UInt128 {
-        let aX: UInt64 = n.a >> 1
-        let bX: UInt64 = n.b >> 1 + ((n.a & 1) << 63)
-        return UInt128(a: aX, b: bX)
-    }
-    
-    // Left Shift.
-    public static func leftShift(_ n: UInt128, _ x: UInt64) -> UInt128 {
-        if x < 64 {
-            let d: UInt64 = (1 << (x + 1)) - 1
-            let aX: UInt64 = n.a << x + ((n.b >> (64 - x)) & d)
-            let bX: UInt64 = n.b << x
-            return UInt128(a: aX, b: bX)
+    static func >>(value: UInt128, by: Int) -> UInt128 {
+        var result = value
+        for _ in 0..<by {
+            let a = result.i.a >> 1
+            let b = result.i.b >> 1 + ((result.i.a & 1) << 63)
+            result = UInt128((a, b))
         }
-        
-        let aX: UInt64 = n.b << (x - 64)
-        let bX: UInt64 = 0
-        return UInt128(a: aX, b: bX)
+        return result
     }
     
-    // Equality.
-    public static func ==(lhs: UInt128, rhs: UInt128) -> Bool {
-        return lhs.a == rhs.a && lhs.b == rhs.b
+    // Equatable.
+    static func ==(lhs: UInt128, rhs: UInt128) -> Bool {
+        return lhs.i == rhs.i
     }
-    public static func !=(lhs: UInt128, rhs: UInt128) -> Bool {
+    
+    static func !=(lhs: UInt128, rhs: UInt128) -> Bool {
         return !(lhs == rhs)
     }
 }

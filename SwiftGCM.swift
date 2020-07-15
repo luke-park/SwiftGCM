@@ -19,8 +19,8 @@ public class SwiftGCM {
     private static let standardNonceSize: Int = 12
     private static let blockSize: Int = 16
     
-    private static let initialCounterSuffix: Data = Data(bytes: [0, 0, 0, 1])
-    private static let emptyBlock: Data = Data(bytes: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+    private static let initialCounterSuffix: Data = Data([0, 0, 0, 1])
+    private static let emptyBlock: Data = Data([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
     
     private let key: Data
     private let tagSize: Int
@@ -135,12 +135,13 @@ public class SwiftGCM {
         let options: UInt32 = CCOptions(kCCOptionECBMode)
         
         var ct: Data = Data(count: data.count)
+        let ctCount = ct.count
         var num: size_t = 0
         
         let status = ct.withUnsafeMutableBytes { ctRaw in
             dataMutable.withUnsafeMutableBytes { dataRaw in
                 keyMutable.withUnsafeMutableBytes{ keyRaw in
-                    CCCrypt(operation, algorithm, options, keyRaw, key.count, nil, dataRaw, data.count, ctRaw, ct.count, &num)
+                    CCCrypt(operation, algorithm, options, keyRaw.baseAddress, key.count, nil, dataRaw.baseAddress, data.count, ctRaw.baseAddress, ctCount, &num)
                 }
             }
         }
@@ -164,8 +165,8 @@ public class SwiftGCM {
     
     // Misc.
     private static func xorData(d1: Data, d2: Data) -> Data {
-        var d1a: [UInt8] = [UInt8](d1)
-        var d2a: [UInt8] = [UInt8](d2)
+        let d1a: [UInt8] = [UInt8](d1)
+        let d2a: [UInt8] = [UInt8](d2)
         var result: Data = Data(count: d1.count)
         
         for i in 0..<d1.count {
@@ -179,8 +180,8 @@ public class SwiftGCM {
     private static func tsCompare(d1: Data, d2: Data) -> Bool {
         if d1.count != d2.count { return false }
         
-        var d1a: [UInt8] = [UInt8](d1)
-        var d2a: [UInt8] = [UInt8](d2)
+        let d1a: [UInt8] = [UInt8](d1)
+        let d2a: [UInt8] = [UInt8](d2)
         var result: UInt8 = 0
         
         for i in 0..<d1.count {
@@ -227,7 +228,7 @@ public class GaloisField {
     }
     public static func tableMultiply(_ x: UInt128, _ t: [[UInt128]]) -> UInt128 {
         var z: UInt128 = UInt128(b: 0)
-        var xd: Data = x.getData()
+        let xd: Data = x.getData()
         
         for i in 0..<16 {
             z = z ^ t[i][Int(xd[i])]
@@ -319,11 +320,11 @@ public struct UInt128 {
         let ar: Data = raw[raw.startIndex..<raw.startIndex + 8]
         let br: Data = raw[raw.startIndex + 8..<raw.startIndex + 16]
         
-        a = ar.withUnsafeBytes { (p: UnsafePointer<UInt64>) -> UInt64 in
-            return p.pointee
+        a = ar.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> UInt64 in
+            return p.load(as: UInt64.self)
         }
-        b = br.withUnsafeBytes { (p: UnsafePointer<UInt64>) -> UInt64 in
-            return p.pointee
+        b = br.withUnsafeBytes { (p: UnsafeRawBufferPointer) -> UInt64 in
+            return p.load(as: UInt64.self)
         }
         
         a = a.bigEndian
